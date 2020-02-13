@@ -22,6 +22,7 @@ from argparse import ArgumentParser, SUPPRESS
 import cv2
 import time
 import logging as log
+import numpy as np
 from openvino.inference_engine import IENetwork, IEPlugin
 
 
@@ -93,7 +94,6 @@ def main():
         labels_map = None
 
     cap = cv2.VideoCapture(input_stream)
-    cap = cv2.cvtColor(cv2.UMat(cap), cv2.COLOR_BGR2GRAY)
 
     cur_request_id = 0
     next_request_id = 1
@@ -104,6 +104,76 @@ def main():
     is_async_mode = True
     render_time = 0
     ret, frame = cap.read()
+    
+    '''Erickson's code insertion starts here'''
+    
+    if args.input != 'cam':
+        task_start = time.time()
+    
+        processTimeStart = time.time();
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+        processTimeEnd = time.time();
+        print("Gray Conversion Time: {}".format(processTimeEnd - processTimeStart))
+        
+        
+        kernel_size = 5;
+        processTimeStart = time.time();
+        blur_gray = cv2.GaussianBlur(gray,(kernel_size, kernel_size),0)
+        processTimeEnd = time.time();
+        print("Gaussian Blur Time: {}".format(processTimeEnd - processTimeStart))
+        
+        
+        processTimeStart = time.time();
+        ret, gray = cv2.threshold(gray,50,255,cv2.THRESH_BINARY)
+        processTimeEnd = time.time();
+        print("Threshold Time: {}".format(processTimeEnd - processTimeStart))
+        
+        #kernel = np.ones((5,5),np.uint8)
+        #gray = cv2.dilate(gray,kernel,iterations = 3)
+        
+        cv2.imwrite("gray.jpg", gray)
+        
+        low_threshold = 50
+        high_threshold = 150
+        edges = cv2.Canny(blur_gray, low_threshold, high_threshold)
+        
+        rho = 1  # distance resolution in pixels of the Hough grid
+        theta = np.pi / 180  # angular resolution in radians of the Hough grid
+        threshold = 100  # minimum number of votes (intersections in Hough grid cell)
+        min_line_length = 10  # minimum number of pixels making up a line
+        max_line_gap = 20  # maximum gap in pixels between connectable line segments
+        line_image = np.copy(frame) * 0  # creating a blank to draw lines on
+
+        # Run Hough on edge detected image
+        # Output "lines" is an array containing endpoints of detected line segments
+        
+        processTimeStart = time.time();
+        lines = cv2.HoughLinesP(edges, rho, theta, threshold, np.array([]),min_line_length, max_line_gap)
+        processTimeEnd = time.time();
+        print("HoughLinesP Time: {}".format(processTimeEnd - processTimeStart))
+        
+        
+        perimeter=[]
+
+        for line in lines:
+            for x1,y1,x2,y2 in line:
+                 perimeter.append(abs(x2-x1) + abs(y2-y1))
+            #    cv2.line(line_image,(x1,y1),(x2,y2),(255,0,0),5)
+            
+        ind = np.argmax(perimeter)
+        
+        for x1,y1,x2,y2 in lines[ind]:
+            cv2.line(line_image,(x1,y1),(x2,y2),(255,0,0),5)
+                
+        lines_edges = cv2.addWeighted(frame, 0.8, line_image, 1, 0)
+        
+        cv2.imwrite("sample_output.jpg", lines_edges)
+        
+        task_end = time.time()
+        task_time = task_end - task_start
+        print("Task Time: {}".format(task_time))
+        
+    '''end of insertion code'''
 
     print("To close the application, press 'CTRL+C' or any key with focus on the output window")
     while cap.isOpened():
@@ -164,6 +234,7 @@ def main():
 
         #
         render_start = time.time()
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         cv2.imshow("Detection Results", frame)
         render_end = time.time()
         render_time = render_end - render_start
