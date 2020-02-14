@@ -158,12 +158,12 @@ def main():
         for line in lines:
             for x1,y1,x2,y2 in line:
                  perimeter.append(abs(x2-x1) + abs(y2-y1))
-            #    cv2.line(line_image,(x1,y1),(x2,y2),(255,0,0),5)
+                 cv2.line(line_image,(x1,y1),(x2,y2),(255,0,0),5)
             
-        ind = np.argmax(perimeter)
+        '''ind = np.argmax(perimeter)
         
         for x1,y1,x2,y2 in lines[ind]:
-            cv2.line(line_image,(x1,y1),(x2,y2),(255,0,0),5)
+            cv2.line(line_image,(x1,y1),(x2,y2),(255,0,0),5)'''
                 
         lines_edges = cv2.addWeighted(frame, 0.8, line_image, 1, 0)
         
