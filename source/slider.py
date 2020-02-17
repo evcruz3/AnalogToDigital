@@ -1,6 +1,4 @@
-import numpy as np
-import sys
-import cv2 as cv
+import cv2
 
 def nothing(x):
     pass
@@ -24,15 +22,15 @@ class Slider(object):
     def __init__(self, windowName):
         self.windowName = windowName
         self.sliderObjects = []
-        cv.namedWindow(self.windowName, flags = cv.WINDOW_AUTOSIZE)
+        cv2.namedWindow(self.windowName, flags = cv2.WINDOW_AUTOSIZE)
         
     def makeNewSlideObject(self, name='Slider', minval=0, maxval=0, defval=0):
         self.sliderObjects.append(sliderObject(name, minval, maxval, defval))
-        cv.createTrackbar(name, self.windowName, minval, maxval, nothing)
-        cv.setTrackbarPos(name, self.windowName, defval)
+        cv2.createTrackbar(name, self.windowName, minval, maxval, nothing)
+        cv2.setTrackbarPos(name, self.windowName, defval)
         
     def getTrackBarValue(self, objectName):
-        value = cv.getTrackbarPos(objectName, self.windowName)
+        value = cv2.getTrackbarPos(objectName, self.windowName)
         return value
     
         
