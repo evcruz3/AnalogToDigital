@@ -7,9 +7,14 @@ from argparse import ArgumentParser, SUPPRESS
 import logging as log
 import cv2
 import time
+from slider import *
 
 # globals defined here
 #------------------------
+DEBUG_MODE = 0
+INCLUDE_HCSLIDER = 0
+INCLUDE_GSLIDER = 0
+
 GAUSSIAN_BLUR_KSIZE = 5
 CANNY_LOW_THRESHOLD = 50
 CANNY_HIGH_THRESHOLD = 150
@@ -17,7 +22,27 @@ HOUGH_LINESP_RHO = 1                # distance resolution in pixels of the Hough
 HOUGH_LINESP_THETA = np.pi/180      # angular resolution in radians of the Hough grid
 HOUGH_LINESP_THRESHOLD = 50        # minimum number of votes (intersections in Hough grid cell)
 
+HOUGH_CIRCLES_DP = 1
+HOUGH_CIRCLES_MD = 260
+HOUGH_CIRCLES_P1 = 30
+HOUGH_CIRCLES_P2 = 100
+HOUGH_CIRCLES_MINR = 0
+HOUGH_CIRCLES_MAXR = 0
+
+dp = 'dp'
+md = 'minDist'
+p1 = 'param1'
+p2 = 'param2'
+minR = 'minRadius'
+maxR = 'maxRadius'
+
+gb = 'Gaussian Blur'
+mb = 'Median Blur'
+erode = 'Erode Kernel Value'
+dilate = 'Dilate Kernel Value'
 #------------------------
+
+
 
 def build_argparser():
     parser = ArgumentParser(add_help=False)
@@ -26,9 +51,13 @@ def build_argparser():
     args.add_argument("-i", "--input",
                       help="Required. Path to video file or image. 'cam' for capturing video stream from camera",
                       required=True, type=str)
+    args.add_argument("-d", "--debug", action='store_true', default=False)
+    args.add_argument("-chs", "--hcslider", action='store_true', default=False, help='Enables the HC slider')
+    args.add_argument("-gs", "--gslider", action='store_true', default=False, help='Enables the gray slider')
+                    
 
     return parser
-    
+
 def findDial(tmp_gray):
     gray = cv2.GaussianBlur(tmp_gray,(GAUSSIAN_BLUR_KSIZE, GAUSSIAN_BLUR_KSIZE),0)
     
@@ -85,8 +114,25 @@ def findDial(tmp_gray):
 
 
 def main():
+    # access global variables
+    global HOUGH_CIRCLES_DP
+    global HOUGH_CIRCLES_MD
+    global HOUGH_CIRCLES_P1
+    global HOUGH_CIRCLES_P2
+    global HOUGH_CIRCLES_MINR
+    global HOUGH_CIRCLES_MAXR
+    global INCLUDE_HCSLIDER
+    global INCLUDE_GSLIDER
+
     log.basicConfig(format="[ %(levelname)s ] %(message)s", level=log.INFO, stream=sys.stdout)
     args = build_argparser().parse_args()
+
+    if(args.debug):
+        DEBUG_MODE = 1
+    if(args.hcslider):
+        INCLUDE_HCSLIDER = 1
+    if(args.gslider):
+        INCLUDE_GSLIDER = 1
 
     if args.input == 'cam':
         input_stream = '/dev/video0'
@@ -103,14 +149,28 @@ def main():
     # The above step is to set the Resolution of the Video. The default is 640x480.
     # This example works with a Resolution of 640x480.
 
-    kernel = np.ones((3,3),np.uint8) #for circle detection
-    
     #must find a way to localize the location for HoughCircles
-    
     y = 0;
     x = 0;
     r = 0;
     #n = 0;
+    
+    if INCLUDE_HCSLIDER:
+        HC_slider = make_slider('Hough Circles Slider')
+        HC_slider.makeNewSlideObject(dp, 1, 5, HOUGH_CIRCLES_DP)
+        HC_slider.makeNewSlideObject(md, 1, 300, HOUGH_CIRCLES_MD)
+        HC_slider.makeNewSlideObject(p1, 1, 100, HOUGH_CIRCLES_P1)
+        HC_slider.makeNewSlideObject(p2, 1, 100, HOUGH_CIRCLES_P2)
+        HC_slider.makeNewSlideObject(minR, 0, 100, HOUGH_CIRCLES_MINR)
+        HC_slider.makeNewSlideObject(maxR, 0, 100, HOUGH_CIRCLES_MAXR)
+        
+    if INCLUDE_GSLIDER:
+        GRAY_slider = make_slider("Gray Slider")
+        GRAY_slider.makeNewSlideObject(gb, 1, 10, 5)
+        GRAY_slider.makeNewSlideObject(mb, 1, 10, 5)
+        GRAY_slider.makeNewSlideObject(erode, 1, 10, 3)
+        GRAY_slider.makeNewSlideObject(dilate, 1, 10, 3)
+    
     while cap.isOpened():
        	# Capture frame-by-frame
        	if args.input == 'cam':
@@ -118,7 +178,6 @@ def main():
         else:
             frame = cv2.imread(input_stream)
             
-        print("1")
         Yloc = int(y - 1.5*r)
         Xloc = int(x - 1.5*r)
         print("radius: ", r)
@@ -129,8 +188,8 @@ def main():
         else:
             localized_frame = frame;
             
-        print("localized frame size: {}".format(localized_frame.size))
-        print("3")
+        #print("localized frame size: {}".format(localized_frame.size))
+        #print("3")
         
         
         # load the image, clone it for output, and then convert it to grayscale
@@ -138,37 +197,72 @@ def main():
             r = 0
             continue
             
-        print("4")
+        #print("4")
             
         tmp_gray = cv2.cvtColor(localized_frame, cv2.COLOR_BGR2GRAY)
         gray = tmp_gray.copy()
         
+        if INCLUDE_GSLIDER:
+            gb_val = GRAY_slider.getTrackBarValue(gb)
+            mb_val = GRAY_slider.getTrackBarValue(mb)
+            erode_val = GRAY_slider.getTrackBarValue(erode)
+            dilate_val = GRAY_slider.getTrackBarValue(dilate)
+            
+            if(gb_val % 2 == 0):
+                gb_val = gb_val-1
+            if(mb_val % 2 == 0):
+                mb_val = mb_val-1
+        else:
+            gb_val = 5
+            mb_val = 5
+            erode_val = 3
+            dilate_val = 3
+        
         output = frame.copy()
         # apply GuassianBlur to reduce noise. medianBlur is also added for smoothening, reducing noise.
-        gray = cv2.GaussianBlur(gray,(5,5),0);
-        gray = cv2.medianBlur(gray,5)
+        gray = cv2.GaussianBlur(gray,(gb_val,gb_val),0);
+        gray = cv2.medianBlur(gray,mb_val)
         
         # Adaptive Guassian Threshold is to detect sharp edges in the Image. For more information Google it.
         gray = cv2.adaptiveThreshold(gray,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY,11,3.5)
         
         #kernel = np.ones((3,3),np.uint8)
-        gray = cv2.erode(gray,kernel,iterations = 1)
+        gray = cv2.erode(gray,np.ones((erode_val,erode_val),np.uint8),iterations = 1)
         # gray = erosion
         
-        gray = cv2.dilate(gray,kernel,iterations = 1)
+        gray = cv2.dilate(gray,np.ones((dilate_val,erode_val),np.uint8),iterations = 1)
         # gray = dilation
 
         # get the size of the final image
         # img_size = gray.shape
         # print img_size
         
-        # detect circles in the image
-        processTimeStart = time.time()
-        circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, 1, 260, param1=30, param2=100, minRadius=0, maxRadius=0)
-        processTimeEnd = time.time()
-        processTime = processTimeEnd - processTimeStart
+        # read trackbar positions for all
+        if INCLUDE_HCSLIDER:
+            hc_dp = HC_slider.getTrackBarValue(dp)
+            hc_md = HC_slider.getTrackBarValue(md)
+            hc_p1 = HC_slider.getTrackBarValue(p1)
+            hc_p2 = HC_slider.getTrackBarValue(p2)
+            hc_minR = HC_slider.getTrackBarValue(minR)
+            hc_maxR = HC_slider.getTrackBarValue(maxR)
+        else:
+            hc_dp = HOUGH_CIRCLES_DP = 1
+            hc_md = HOUGH_CIRCLES_MD = 260
+            hc_p1 = HOUGH_CIRCLES_P1 = 30
+            hc_p2 = HOUGH_CIRCLES_P2 = 100
+            hc_minR = HOUGH_CIRCLES_MINR = 0
+            hc_maxR = HOUGH_CIRCLES_MAXR = 0
         
-        print("Process Time: {}".format(processTime))
+        # detect circles in the image
+        if DEBUG_MODE:
+            processTimeStart = time.time()
+            
+        circles = cv2.HoughCircles(gray, cv2.HOUGH_GRADIENT, hc_dp, hc_md, param1=hc_p1, param2=hc_p2, minRadius=hc_minR, maxRadius=hc_maxR)
+        
+        if DEBUG_MODE:
+            processTimeEnd = time.time()
+            processTime = processTimeEnd - processTimeStart
+            print("Process Time: {}".format(processTime))
         # print circles
         
         # ensure at least some circles were found
