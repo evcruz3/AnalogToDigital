@@ -111,7 +111,6 @@ def main():
     y = 0;
     x = 0;
     r = 0;
-    #n = 0;
     
     if settings.INCLUDE_HCSLIDER:
         HC_slider = slider.make_slider('Hough Circles Slider')
@@ -131,7 +130,6 @@ def main():
     
     while cap.isOpened():
        	# Capture frame-by-frame
-        print("Debug Mode Main: ", settings.DEBUG_MODE)
        	if args.input == 'cam':
             ret, frame = cap.read()
         else:

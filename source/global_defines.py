@@ -21,6 +21,10 @@ def init():
     global HOUGH_LINESP_THETA
     global HOUGH_LINESP_THRESHOLD
     
+    global MEDIAN_BLUE_KSIZE
+    global ERODE_KERNEL
+    global DILATE_KERNEL
+    
     global dp
     global md
     global p1
@@ -51,6 +55,10 @@ def init():
     HOUGH_LINESP_THETA = np.pi/180      # angular resolution in radians of the Hough grid
     HOUGH_LINESP_THRESHOLD = 50        # minimum number of votes (intersections in Hough grid cell)
 
+    MEDIAN_BLUR_KSIZE = 5
+    ERODE_KERNEL = 3
+    DILATE_KERNEL = 3
+
     dp = 'dp'
     md = 'minDist'
     p1 = 'param1'
@@ -62,4 +70,4 @@ def init():
     mb = 'Median Blur'
     erode = 'Erode Kernel Value'
     dilate = 'Dilate Kernel Value'
-    #------------------------
+#------------------------
