@@ -10,6 +10,9 @@ import global_defines as settings
 import cv2
 import slider
 import numpy as np
+import math
+
+#TODO: Dial detection through HSV and Line Detection (ok)
 
 def build_argparser():
     parser = ArgumentParser(add_help=False)
@@ -21,63 +24,53 @@ def build_argparser():
     args.add_argument("-d", "--debug", action='store_true', default=False)
     args.add_argument("-chs", "--hcslider", action='store_true', default=False, help='Enables the HC slider')
     args.add_argument("-gs", "--gslider", action='store_true', default=False, help='Enables the gray slider')
-                    
+    args.add_argument("-hs", "--hsvslider", action='store_true', default=False, help='Enables the hsv slider')
 
     return parser
 
-def findDial(tmp_gray):
-    gray = cv2.GaussianBlur(tmp_gray,(settings.GAUSSIAN_BLUR_KSIZE, settings.GAUSSIAN_BLUR_KSIZE),0)
-    
-    ret, gray = cv2.threshold(gray,50,255,cv2.THRESH_BINARY)
-    
-    #kernel = np.ones((3,3),np.uint8)
-    #gray = cv2.dilate(gray,kernel,iterations = 3)
-    
-    edges = cv2.Canny(gray, settings.CANNY_LOW_THRESHOLD, settings.CANNY_HIGH_THRESHOLD)
-    
-    min_line_length = 10  # minimum number of pixels making up a line
-    max_line_gap = 10  # maximum gap in pixels between connectable line segments
+def findDial(frame, HSV_slider = None):
+    # convert to HSV from BGR
+    hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-    # Run Hough on edge detected image
-    # Output "lines" is an array containing endpoints of detected line segments
-    
-    lines = cv2.HoughLinesP (edges, 
-                            settings.HOUGH_LINESP_RHO, 
-                            settings.HOUGH_LINESP_THETA, 
-                            settings.HOUGH_LINESP_THRESHOLD, 
-                            np.array([]),
-                            min_line_length, 
-                            max_line_gap)
-    
-    
-    if lines is not None:
-        for line in lines:
-            for x1,y1,x2,y2 in line:
-                 #perimeter.append(abs(x2-x1) + abs(y2-y1))
-                 cv2.line(gray,(x1,y1),(x2,y2),(125,125,125),5)
-                 #cv2.line(output,(x1,y1),(x2,y2),(255,0,0),5)
+    # read trackbar positions for all
+    if HSV_slider is not None:
+        hul = HSV_slider.getTrackBarValue(settings.hl)
+        huh = HSV_slider.getTrackBarValue(settings.hh)
+        sal = HSV_slider.getTrackBarValue(settings.sl)
+        sah = HSV_slider.getTrackBarValue(settings.sh)
+        val = HSV_slider.getTrackBarValue(settings.vl)
+        vah = HSV_slider.getTrackBarValue(settings.vh)
     else:
-        print("No Line Detected")
-    
-    
-    cv2.imshow("line_gray", gray)
-    
-    return lines
-    
-    '''perimeter=[]
+        hul = settings.HSV_HUL
+        huh = settings.HSV_HUH
+        sal = settings.HSV_SAL
+        sah = settings.HSV_SAH
+        val = settings.HSV_VAL
+        vah = settings.HSV_VAH
 
-    if lines.size > 0:
-        for line in lines:
-            for x1,y1,x2,y2 in line:
-                 perimeter.append(abs(x2-x1) + abs(y2-y1))
-                 #cv2.line(line_image,(x1,y1),(x2,y2),(255,0,0),5)
-            
-        #detection of longest line (dial)
-        ind = np.argmax(perimeter)
-    
-        return lines[ind]
+    hsv_lowerbound = np.array([hul, sal, val])
+    hsv_upperbound = np.array([huh, sah, vah])
+    mask = cv2.inRange(hsv_frame, hsv_lowerbound, hsv_upperbound)
+    res = cv2.bitwise_and(frame, frame, mask=mask) #filter inplace
+    cnts, hir = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    if len(cnts) > 0:
+        maxcontour = max(cnts, key=cv2.contourArea)
+
+        #Find center of the contour 
+        M = cv2.moments(maxcontour)
+        if M['m00'] > 0 and cv2.contourArea(maxcontour) > 1000:
+            cx = int(M['m10']/M['m00'])
+            cy = int(M['m01']/M['m00'])
+            return (cx, cy), True
+        else:
+            return (700, 700), False #faraway point
     else:
-        return 0'''
+        return (700, 700), False #faraway point
+    
+    
+def distance(x1, y1, x2, y2):
+    dist = math.sqrt(math.fabs(x2-x1)**2 + math.fabs(y2-y1)**2)
+    return dist
 
 def main():
     settings.init()
@@ -91,6 +84,8 @@ def main():
         settings.INCLUDE_HCSLIDER = 1
     if(args.gslider):
         settings.INCLUDE_GSLIDER = 1
+    if(args.hsvslider):
+        settings.INCLUDE_HSVSLIDER = 1
 
     if args.input == 'cam':
         input_stream = '/dev/video0'
@@ -127,6 +122,15 @@ def main():
         GRAY_slider.makeNewSlideObject(settings.mb, 1, 10, 5)
         GRAY_slider.makeNewSlideObject(settings.erode, 1, 10, 3)
         GRAY_slider.makeNewSlideObject(settings.dilate, 1, 10, 3)
+        
+    if settings.INCLUDE_HSVSLIDER:
+        HSV_slider = slider.make_slider("HSV Slider")
+        HSV_slider.makeNewSlideObject(settings.hl, 0, 179, settings.HSV_HUL)
+        HSV_slider.makeNewSlideObject(settings.hh, 0, 179, settings.HSV_HUH)
+        HSV_slider.makeNewSlideObject(settings.sl, 0, 255, settings.HSV_SAL)
+        HSV_slider.makeNewSlideObject(settings.sh, 0, 255, settings.HSV_SAH)
+        HSV_slider.makeNewSlideObject(settings.vl, 0, 255, settings.HSV_VAL)
+        HSV_slider.makeNewSlideObject(settings.vh, 0, 255, settings.HSV_VAH)
     
     while cap.isOpened():
        	# Capture frame-by-frame
@@ -184,9 +188,35 @@ def main():
                 cv2.rectangle(output, (tmpx - 5, tmpy - 5), (tmpx + 5, tmpy + 5), (0, 128, 255), -1)
                 cv2.circle(output, (tmpx, tmpy), r, (0, 255, 0), 4)
             
-            # detect line in the image
-            # TODO: Either detect through line or through HSV (depending on the bus dashboard model)
-            lines = findDial(tmp_gray)
+            # detect dial in the image
+            if settings.INCLUDE_HSVSLIDER:
+                (dial_x, dial_y), found_dial = findDial(localized_frame, HSV_slider)
+            else:
+                (dial_x, dial_y), found_dial = findDial(localized_frame)
+            
+            if found_dial:
+                hypotenuse = distance(tmpx, tmpy, dial_x, dial_y)
+                horizontal = distance(tmpx, tmpy, dial_x, dial_y)
+                vertical = distance(tmpx, tmpy, dial_x, dial_y)
+                angle = np.arcsin(vertical/hypotenuse)*180.0/math.pi
+                
+            cv2.line(output, (tmpx, tmpy), (dial_x, dial_y), (0, 0, 255), 2)
+            cv2.line(output, (tmpx, tmpy), (dial_x, tmpy), (0, 0, 255), 2)
+            cv2.line(output, (dial_x, dial_y), (dial_x, tmpy), (0, 0, 255), 2)
+            
+            #put angle text (allow for calculations upto 180 degrees)
+            angle_text = ""
+            if dial_y < tmpy and dial_x > tmpx:
+                angle_text = str(int(angle))
+            elif dial_y < tmpy and dial_x < tmpx:
+                angle_text = str(int(180 - angle))
+            elif dial_y > tmpy and dial_x < tmpx:
+                angle_text = str(int(180 + angle))
+            elif dial_y > tmpy and dial_x > tmpx:
+                angle_text = str(int(360 - angle))
+            
+            #CHANGE FONT HERE
+            cv2.putText(output, angle_text, (tmpx-30, tmpy), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 128, 229), 2)
             
             x = tmpx
             y = tmpy
@@ -200,15 +230,10 @@ def main():
         # Display the resulting frame
         #cv2.imshow('localized frame', localized_frame)
         cv2.imshow('frame',output)
-        cv2.imshow('gray', gray)
+        #cv2.imshow('gray', gray)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
         
-    '''if args.input != 'cam':
-        while(1):
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break'''
-
     # When everything done, release the capture
     cap.release()
     cv2.destroyAllWindows()
