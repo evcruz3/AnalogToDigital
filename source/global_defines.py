@@ -3,6 +3,14 @@ import numpy as np
 # globals defined here
 #------------------------
 def init():
+    global input_stream
+    global MIN_ANGLE
+    global MAX_ANGLE
+    global MIN_VALUE
+    global MAX_VALUE
+    global ANGLE_RANGE
+    global UNIT
+
     global HOUGH_CIRCLES_DP
     global HOUGH_CIRCLES_MD
     global HOUGH_CIRCLES_P1
@@ -52,6 +60,7 @@ def init():
     global vl
     global vh
     
+    MIN_VALUE = 0
     HOUGH_CIRCLES_DP = 1
     HOUGH_CIRCLES_MD = 260
     HOUGH_CIRCLES_P1 = 30
