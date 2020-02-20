@@ -1,4 +1,5 @@
 import numpy as np
+from random import randint
 
 # globals defined here
 #------------------------
@@ -10,6 +11,10 @@ def init():
     global MAX_VALUE
     global ANGLE_RANGE
     global UNIT
+    
+    global tracker_colors
+    global tracker_types
+    global tracker_type
 
     global HOUGH_CIRCLES_DP
     global HOUGH_CIRCLES_MD
@@ -81,15 +86,19 @@ def init():
     HOUGH_LINESP_THRESHOLD = 50        # minimum number of votes (intersections in Hough grid cell)
 
     HSV_HUL = 0
-    HSV_SAL = 74
-    HSV_VAL = 231
-    HSV_HUH = 151
+    HSV_SAL = 145
+    HSV_VAL = 61
+    HSV_HUH = 176
     HSV_SAH = 255
     HSV_VAH = 255
 
     MEDIAN_BLUR_KSIZE = 5
     ERODE_KERNEL = 3
     DILATE_KERNEL = 3
+    
+    tracker_colors = [(randint(0, 255), randint(0, 255), randint(0, 255)), (randint(0, 255), randint(0, 255), randint(0, 255))]
+    
+    tracker_types = ['BOOSTING', 'MIL','KCF', 'TLD', 'MEDIANFLOW', 'GOTURN', 'MOSSE', 'CSRT']
     
     dp = 'dp'
     md = 'minDist'

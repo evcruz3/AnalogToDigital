@@ -5,9 +5,9 @@ import os
 from argparse import ArgumentParser, SUPPRESS
 import logging as log
 import time
+import cv2
 import circle_detector as cdetect
 import global_defines as settings
-import cv2
 import slider
 import numpy as np
 import math
@@ -19,7 +19,7 @@ import tracker
 #TODO: Assess angle resolution (should it be int, double, float, etc)
 #TODO: Setup args for angles and range values (ok)
 #TODO: Make the calibration more customer-centric
-#TODO: Add tracking for faster video processing
+#TODO: Add tracking for faster video processing (ok)
 
 def build_argparser():
     parser = ArgumentParser(add_help=False)
@@ -28,14 +28,15 @@ def build_argparser():
     args.add_argument("-i", "--input",
                       help="Required. Path to video file or image. 'cam' for capturing video stream from camera",
                       required=True, type=str)
-    args.add_argument("-minA", "--min_angle", type=int, required=True, default=211, help='Specify the angle where the zero value is')
-    args.add_argument("-maxA", "--max_angle", type=int, required=True, default=0, help='Specify the angle where the maximum value is')
-    args.add_argument("-maxV", "--max_value", type=int, required=True, default=180, help='Specifiy the maximum value')
-    args.add_argument("-u", "--unit", type=str, default='kph', help='Specify the units')
+    args.add_argument("-minA", "--min_angle", type=int, default=217, help='Specify the angle where the zero value is')
+    args.add_argument("-maxA", "--max_angle", type=int, default=323, help='Specify the angle where the maximum value is')
+    args.add_argument("-maxV", "--max_value", type=int, default=8, help='Specifiy the maximum value')
+    args.add_argument("-u", "--unit", type=str, default='rpm', help='Specify the units')
     args.add_argument("-d", "--debug", action='store_true', default=False)
     args.add_argument("-chs", "--hcslider", action='store_true', default=False, help='Enables the HC slider')
     args.add_argument("-gs", "--gslider", action='store_true', default=False, help='Enables the gray slider')
     args.add_argument("-hs", "--hsvslider", action='store_true', default=False, help='Enables the hsv slider')
+    args.add_argument("-t", "--tracker", type=int, default=6, help='Tracker type to be used')
 
     return parser
 
@@ -62,10 +63,17 @@ def findDial(frame, HSV_slider = None):
     hsv_lowerbound = np.array([hul, sal, val])
     hsv_upperbound = np.array([huh, sah, vah])
     mask = cv2.inRange(hsv_frame, hsv_lowerbound, hsv_upperbound)
+    mask = cv2.dilate(mask,np.ones((5,5),np.uint8),iterations = 1)
+    
+    '''low_threshold = 50
+    high_threshold = 150
+    
+    mask = cv2.Canny(mask, low_threshold, high_threshold)
     if settings.INCLUDE_HSVSLIDER:
         cv2.imshow('HSV', mask)
     res = cv2.bitwise_and(frame, frame, mask=mask) #filter inplace
-    cnts, hir = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    #cv2.imshow("res", res)
+    cnts, hir = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
     if len(cnts) > 0:
         maxcontour = max(cnts, key=cv2.contourArea)
 
@@ -78,7 +86,36 @@ def findDial(frame, HSV_slider = None):
         else:
             return (700, 700), False #faraway point
     else:
-        return (700, 700), False #faraway point
+        return (700, 700), False #faraway point'''
+    '''
+    low_threshold = 50
+    high_threshold = 150
+    
+    edges = cv2.Canny(mask, low_threshold, high_threshold)
+    '''
+    
+    rho = settings.HOUGH_LINESP_RHO
+    theta= settings.HOUGH_LINESP_THETA
+    threshold = settings.HOUGH_LINESP_THRESHOLD
+    min_line_length = 10
+    max_line_gap = 20
+    
+    lines = cv2.HoughLinesP(mask, rho, theta, threshold, np.array([]),min_line_length, max_line_gap)
+    
+    perimeter=[]
+    #cv2.imshow('lines', mask)
+    if lines is not None:
+        for line in lines:
+            for x1,y1,x2,y2 in line:
+                 perimeter.append(abs(x2-x1) + abs(y2-y1))
+            #    cv2.line(line_image,(x1,y1),(x2,y2),(255,0,0),5)
+            
+        ind = np.argmax(perimeter)
+        
+        for x1,y1,x2,y2 in lines[ind]:
+            return (int((x1+x2)/2), int((y1+y2)/2)), True
+    else:
+        return (0, 0), False
     
     
 def distance(x1, y1, x2, y2):
@@ -122,21 +159,24 @@ def process_args(args):
     settings.MIN_ANGLE = args.min_angle
     settings.MAX_ANGLE = args.max_angle
     settings.MAX_VALUE = args.max_value
+    settings.tracker_type = settings.tracker_types[args.tracker]
     
     if(args.max_angle <= 270):
         settings.ANGLE_RANGE = args.min_angle - args.max_angle
     else:
-        print("TEST")
         settings.ANGLE_RANGE = args.min_angle + (360 - args.max_angle)
     
     log.info("Minimum: 0 at {} deg".format(settings.MIN_ANGLE))
     log.info("Maximum: {0} at {1} deg".format(settings.MAX_VALUE, settings.MAX_ANGLE))
     log.info("Angle Range: {} deg".format(settings.ANGLE_RANGE))
+    log.info("Tracker Type: {}".format(settings.tracker_type))
     
     
 def getFrame(cap):
-    if settings.input_stream == '/dev/video0':
-        _, frame = cap.read()
+    if settings.input_stream == '/dev/video0' or os.path.splitext(settings.input_stream)[1] == '.mp4':
+        ok, frame = cap.read()
+        if not ok:
+            print("fetch of frame error")
     else:
         frame = cv2.imread(settings.input_stream)
         '''width = 640
@@ -144,6 +184,14 @@ def getFrame(cap):
         dim = (width, height)
         frame = cv2.resize(frame, dim, interpolation=cv2.INTER_AREA)'''
         
+    frame = frame[0:frame.shape[0], 0:int(frame.shape[1]/2)]
+        
+        
+    #display = frame.copy()
+    
+    #cv2.putText(display, str(time.time()), (100,20), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (50,170,50),2)
+    #cv2.imshow('getFrame', display)
+    
     return frame
 
 def sampleData(circleLocation, dialLocation, frame):
@@ -166,6 +214,14 @@ def sampleData(circleLocation, dialLocation, frame):
         final_angle = int(180 + angle)
     elif dial_y > tmpy and dial_x > tmpx:
         final_angle = int(360 - angle)
+    elif dial_y == tmpy and dial_x > tmpx:
+        final_angle = 0
+    elif dial_y == tmpy and dial_x < tmpx:
+        final_angle = 180
+    elif dial_x == tmpx and dial_y > tmpy:
+        final_angle = 270
+    else:
+        final_angle = 90
     
     if settings.DEBUG_MODE:
         cv2.line(output, (tmpx, tmpy), (dial_x, dial_y), (0, 0, 255), 2)
@@ -178,12 +234,16 @@ def sampleData(circleLocation, dialLocation, frame):
         #CHANGE FONT HERE
         cv2.putText(output, angle_text, (tmpx-30, tmpy), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 128, 229), 2)
     
-        #cv2.imshow('sampleData', output)
+        cv2.imshow('sampleData', output)
     data = convertAngleToData(final_angle) 
     
     return data
 
-def findCircleAndDial(frame, Cx = 0, Cy = 0, Cr = 0, HC_slider = None, GRAY_slider = None, HSV_slider = None):
+def findCircleAndDial(frame, circleLocation, HC_slider = None, GRAY_slider = None, HSV_slider = None):
+    Cx = circleLocation[0]
+    Cy = circleLocation[1]
+    Cr = circleLocation[2]
+
     Yloc = int(Cy - 1.5*Cr)
     Xloc = int(Cx - 1.5*Cr)
     
@@ -198,7 +258,10 @@ def findCircleAndDial(frame, Cx = 0, Cy = 0, Cr = 0, HC_slider = None, GRAY_slid
     # if localized frame is zero (implies failure to previously detect a circle or the circle detected is almost out of frame)
     if localized_frame.size == 0:
         Cr = 0
-        return (0,0,0), (0,0), 0, 0, 0
+        return (0,0,0), (0,0), 0
+        
+    #if settings.DEBUG_MODE:
+        #cv2.imshow('localized frame', localized_frame)
         
     output = frame.copy()
         
@@ -235,7 +298,7 @@ def findCircleAndDial(frame, Cx = 0, Cy = 0, Cr = 0, HC_slider = None, GRAY_slid
                 cv2.rectangle(output, (tmpx - 5, tmpy - 5), (tmpx + 5, tmpy + 5), (0, 128, 255), -1)
                 cv2.circle(output, (tmpx, tmpy), Cr, (0, 255, 0), 4)
         
-                #cv2.imshow('find circle', output)
+                cv2.imshow('find circle', output)
         # detect dial in the image
         if settings.INCLUDE_HSVSLIDER:
             (dial_x, dial_y), found_dial = findDial(localized_frame, HSV_slider)
@@ -268,6 +331,32 @@ def findCircleAndDial(frame, Cx = 0, Cy = 0, Cr = 0, HC_slider = None, GRAY_slid
         
     return circleLocation, dialLocation, locationSuccess
     
+def createTrackerByName(trackerType):
+  # Create a tracker based on tracker name
+  if trackerType == settings.tracker_types[0]:
+    tracker = cv2.TrackerBoosting_create()
+  elif trackerType == settings.tracker_types[1]: 
+    tracker = cv2.TrackerMIL_create()
+  elif trackerType == settings.tracker_types[2]:
+    tracker = cv2.TrackerKCF_create()
+  elif trackerType == settings.tracker_types[3]:
+    tracker = cv2.TrackerTLD_create()
+  elif trackerType == settings.tracker_types[4]:
+    tracker = cv2.TrackerMedianFlow_create()
+  elif trackerType == settings.tracker_types[5]:
+    tracker = cv2.TrackerGOTURN_create()
+  elif trackerType == settings.tracker_types[6]:
+    tracker = cv2.TrackerMOSSE_create()
+  elif trackerType == settings.tracker_types[7]:
+    tracker = cv2.TrackerCSRT_create()
+  else:
+    tracker = None
+    print('Incorrect tracker name')
+    print('Available trackers are:')
+    for t in settings.tracker_types:
+      print(t)
+     
+  return tracker
 
 def main():
     settings.init()
@@ -331,71 +420,61 @@ def main():
                 else
                     break
     '''
-    tracker_types = ['BOOSTING', 'MIL','KCF', 'TLD', 'MEDIANFLOW', 'GOTURN', 'MOSSE', 'CSRT']
-    tracker_type = tracker_types[7]
-    if tracker_type == 'BOOSTING':
-        tracker1 = cv2.TrackerBoosting_create()
-        tracker2 = cv2.TrackerBoosting_create()
-    if tracker_type == 'MIL':
-        tracker1 = cv2.TrackerMIL_create()
-        tracker2 = cv2.TrackerMIL_create()
-    if tracker_type == 'KCF':
-        tracker1 = cv2.TrackerKCF_create()
-        tracker2 = cv2.TrackerKCF_create()
-    if tracker_type == 'TLD':
-        tracker1 = cv2.TrackerTLD_create()
-        tracker2 = cv2.TrackerTLD_create()
-    if tracker_type == 'MEDIANFLOW':
-        tracker1 = cv2.TrackerMedianFlow_create()
-        tracker2 = cv2.TrackerMedianFlow_create()
-    if tracker_type == 'GOTURN':
-        tracker1 = cv2.TrackerGOTURN_create()
-        tracker2 = cv2.TrackerGOTURN_create()
-    if tracker_type == 'MOSSE':
-        tracker1 = cv2.TrackerMOSSE_create()
-        tracker2 = cv2.TrackerMOSSE_create()
-    if tracker_type == "CSRT":
-        tracker1 = cv2.TrackerCSRT_create()
-        tracker2 = cv2.TrackerCSRT_create()
+    tracker_type = settings.tracker_type
+
     
     while cap.isOpened():
        	# Capture frame-by-frame
-       	
+       	bboxes = [(0,0,0,0),(0,0,0,0)]
+       	circleTracker = createTrackerByName(tracker_type)
+       	dialTracker = createTrackerByName(tracker_type)
         frame = getFrame(cap)
-        circleLocation, dialLocation, locationSuccess = findCircleAndDial(frame, circleLocation[0], circleLocation[1], circleLocation[2], HC_slider, GRAY_slider, HSV_slider)
+        circleLocation, dialLocation, locationSuccess = findCircleAndDial(frame, circleLocation, HC_slider, GRAY_slider, HSV_slider)
         
-        '''if settings.DEBUG_MODE:
-            cv2.imshow('output',output)
-        if settings.INCLUDE_GSLIDER:
-            cv2.imshow('gray', gray)'''
-            
         if locationSuccess:
             log.info("Circle and Dial Detection Successful")
             data = sampleData(circleLocation, dialLocation, frame)
+            tmp = int(circleLocation[2])
+            bboxes[0] = ((circleLocation[0] - int(tmp/2), circleLocation[1] - int(tmp/2), tmp, tmp)) 
+            bboxes[1] = ((dialLocation[0] - int(tmp/2), dialLocation[1] - int(tmp/2), tmp, tmp))
+            
+            circleTracker.init(frame, bboxes[0])
+            dialTracker.init(frame, bboxes[1])
+            
             while (1):
+                print("get track frame..")
                 frame = getFrame(cap)
-                #while(1):
-                #    cv2.imshow('output',output)
-                bbox1 = (circleLocation[0] - 5, circleLocation[1] - 5, 10, 10)
-                bbox2 = (dialLocation[0] - 5, dialLocation[1] - 5, 10, 10)
-                tracker1.init(frame, bbox1)
-                tracker2.init(frame, bbox2)
-                bbox1, bbox2, track_success, output = tracker.track(frame, tracker_type, tracker1, bbox1, tracker2, bbox2)
+                
+                newboxes, track_success = tracker.track(frame, tracker_type, circleTracker, dialTracker)
+                print("test5")
                 if track_success:
                     log.info("Track success")
-                    circleLocation = (int(bbox1[0] + 5), int(bbox1[1] + 5), circleLocation[2])
-                    dialLocation = (int(bbox2[0] + 5), int(bbox2[1] + 5))
+                    
+                    for i, newbox in enumerate(newboxes):
+                        if(i == 0):
+                            circleLocation = (int(newbox[0] + newbox[2]/2), int(newbox[1] + newbox[3]/2), int(circleLocation[2]))
+                        if(i == 1):
+                            dialLocation = (int(newbox[0] + newbox[2]/2), int(newbox[1] + newbox[3]/2))
+                    
                     data = sampleData(circleLocation, dialLocation, frame)
+                    bboxes = newboxes
                 else:
+                    log.info("Track failed")
+                    del circleTracker
+                    del dialTracker
                     break
                     
-                #if settings.DEBUG_MODE:
-                #    cv2.imshow('frame',output)
+                while(1):
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        break
+                #break
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     # When everything done, release the capture
     cap.release()
     cv2.destroyAllWindows()
+    del tracker1
+    del tracker2
     
 if __name__ == '__main__':
     sys.exit(main() or 0)
