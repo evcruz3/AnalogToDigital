@@ -12,6 +12,7 @@ import slider
 import numpy as np
 import math
 import tracker
+from capture import VideoCaptureThreading
 
 #TODO: Handling of multiple detected circles
 #TODO: Dial detection through HSV and Line Detection (ok)
@@ -20,6 +21,7 @@ import tracker
 #TODO: Setup args for angles and range values (ok)
 #TODO: Make the calibration more customer-centric
 #TODO: Add tracking for faster video processing (ok)
+#TODO: asynchronous video capture for real-time video capture (ok)
 
 def build_argparser():
     parser = ArgumentParser(add_help=False)
@@ -37,6 +39,7 @@ def build_argparser():
     args.add_argument("-gs", "--gslider", action='store_true', default=False, help='Enables the gray slider')
     args.add_argument("-hs", "--hsvslider", action='store_true', default=False, help='Enables the hsv slider')
     args.add_argument("-t", "--tracker", type=int, default=6, help='Tracker type to be used')
+    args.add_argument("-a", "--async", action='store_true', default=False, help='Enable async mode video capture')
 
     return parser
 
@@ -148,6 +151,9 @@ def process_args(args):
     if(args.hsvslider):
         settings.INCLUDE_HSVSLIDER = 1
         log.info("HSV Slider is enabled")
+    if(args.async):
+        settings.async_mode = 1
+        log.info("async mode enabled")
 
     if args.input == 'cam':
         settings.input_stream = '/dev/video0'
@@ -175,8 +181,6 @@ def process_args(args):
 def getFrame(cap):
     if settings.input_stream == '/dev/video0' or os.path.splitext(settings.input_stream)[1] == '.mp4':
         ok, frame = cap.read()
-        if not ok:
-            print("fetch of frame error")
     else:
         frame = cv2.imread(settings.input_stream)
         '''width = 640
@@ -184,7 +188,11 @@ def getFrame(cap):
         dim = (width, height)
         frame = cv2.resize(frame, dim, interpolation=cv2.INTER_AREA)'''
         
-    frame = frame[0:frame.shape[0], 0:int(frame.shape[1]/2)]
+    if frame is not None:
+        frame = frame[0:frame.shape[0], 0:int(frame.shape[1]/2)]
+        ok = True
+    else:
+        ok = False
         
         
     #display = frame.copy()
@@ -192,7 +200,7 @@ def getFrame(cap):
     #cv2.putText(display, str(time.time()), (100,20), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (50,170,50),2)
     #cv2.imshow('getFrame', display)
     
-    return frame
+    return ok, frame
 
 def sampleData(circleLocation, dialLocation, frame):
     tmpx = circleLocation[0]
@@ -364,7 +372,10 @@ def main():
     args = build_argparser().parse_args()
     process_args(args)
     
-    cap = cv2.VideoCapture(settings.input_stream) # Set Capture Device, in case of a USB Webcam try 1, or give -1 to get a list of available devices
+    if settings.async_mode:
+        cap = VideoCaptureThreading(settings.input_stream)
+    else:
+        cap = cv2.VideoCapture(settings.input_stream) # Set Capture Device, in case of a USB Webcam try 1, or give -1 to get a list of available devices
 
     #Set Width and Height 
     # cap.set(3,1280)
@@ -422,13 +433,19 @@ def main():
     '''
     tracker_type = settings.tracker_type
 
+    if settings.async_mode:
+        cap.start()
+        
+    #cap.set(cv2.CAP_PROP_BUFFERSIZE, 3)
     
     while cap.isOpened():
        	# Capture frame-by-frame
        	bboxes = [(0,0,0,0),(0,0,0,0)]
        	circleTracker = createTrackerByName(tracker_type)
        	dialTracker = createTrackerByName(tracker_type)
-        frame = getFrame(cap)
+        ok, frame = getFrame(cap)
+        if not ok:
+            break
         circleLocation, dialLocation, locationSuccess = findCircleAndDial(frame, circleLocation, HC_slider, GRAY_slider, HSV_slider)
         
         if locationSuccess:
@@ -441,9 +458,12 @@ def main():
             circleTracker.init(frame, bboxes[0])
             dialTracker.init(frame, bboxes[1])
             
-            while (1):
+            while (cap.isOpened()):
                 print("get track frame..")
-                frame = getFrame(cap)
+                ok, frame = getFrame(cap)
+                
+                if not ok:
+                    break
                 
                 newboxes, track_success = tracker.track(frame, tracker_type, circleTracker, dialTracker)
                 print("test5")
@@ -464,17 +484,24 @@ def main():
                     del dialTracker
                     break
                     
-                while(1):
+                '''while(1):
                     if cv2.waitKey(1) & 0xFF == ord('q'):
-                        break
+                        break'''
                 #break
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     # When everything done, release the capture
-    cap.release()
+    
+    if settings.async_mode:
+        cap.stop()
+    else:
+        cap.release()
     cv2.destroyAllWindows()
-    del tracker1
-    del tracker2
+    
+    if circleTracker is not None:
+        del circleTracker
+    if dialTracker is not None:
+        del dialTracker
     
 if __name__ == '__main__':
     sys.exit(main() or 0)
