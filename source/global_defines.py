@@ -4,6 +4,7 @@ from random import randint
 # globals defined here
 #------------------------
 def init():
+    global async_mode
     global input_stream
     global MIN_ANGLE
     global MAX_ANGLE
@@ -64,6 +65,8 @@ def init():
     global sh
     global vl
     global vh
+    
+    async_mode = 0
     
     MIN_VALUE = 0
     HOUGH_CIRCLES_DP = 1
