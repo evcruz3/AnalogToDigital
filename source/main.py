@@ -132,8 +132,7 @@ def convertAngleToData(angle):
         transformedAngle = settings.MIN_ANGLE + (360-angle)
         
     data = (transformedAngle/settings.ANGLE_RANGE)*settings.MAX_VALUE
-    if settings.DEBUG_MODE:
-        log.info("[{0}] {1} {2}".format(time.time(), data, settings.UNIT))
+    log.info("[{0}] {1} {2}".format(time.time(), data, settings.UNIT))
         
     return data
     
@@ -452,23 +451,33 @@ def main():
             log.info("Circle and Dial Detection Successful")
             data = sampleData(circleLocation, dialLocation, frame)
             tmp = int(circleLocation[2])
-            bboxes[0] = ((circleLocation[0] - int(tmp/2), circleLocation[1] - int(tmp/2), tmp, tmp)) 
-            bboxes[1] = ((dialLocation[0] - int(tmp/2), dialLocation[1] - int(tmp/2), tmp, tmp))
+            
+            # Handling just in case computations lead to out-of-frame location
+            x = max(0, circleLocation[0] - int(tmp/2))
+            y = max(0, circleLocation[1] - int(tmp/2))
+            w = min(tmp, frame.shape[1] - x)
+            h = min(tmp, frame.shape[0] - y)
+            bboxes[0] = ((x, y, w, h)) 
+            
+            x = max(0, dialLocation[0] - int(tmp/2))
+            y = max(0, dialLocation[1] - int(tmp/2))
+            w = min(tmp, frame.shape[1] - x)
+            h = min(tmp, frame.shape[0] - y)
+            bboxes[1] = ((x, y, w, h)) 
             
             circleTracker.init(frame, bboxes[0])
             dialTracker.init(frame, bboxes[1])
             
             while (cap.isOpened()):
-                print("get track frame..")
                 ok, frame = getFrame(cap)
                 
                 if not ok:
                     break
                 
                 newboxes, track_success = tracker.track(frame, tracker_type, circleTracker, dialTracker)
-                print("test5")
                 if track_success:
-                    log.info("Track success")
+                    if settings.DEBUG_MODE:
+                        log.info("Track success")
                     
                     for i, newbox in enumerate(newboxes):
                         if(i == 0):
@@ -479,7 +488,8 @@ def main():
                     data = sampleData(circleLocation, dialLocation, frame)
                     bboxes = newboxes
                 else:
-                    log.info("Track failed")
+                    if settings.DEBUG_MODE:
+                        log.info("Track failed")
                     del circleTracker
                     del dialTracker
                     break
