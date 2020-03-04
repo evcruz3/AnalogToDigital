@@ -13,6 +13,8 @@ import numpy as np
 import math
 import tracker
 from capture import VideoCaptureThreading
+import datetime
+import importlib
 
 #TODO: Handling of multiple detected circles
 #TODO: Dial detection through HSV and Line Detection (ok)
@@ -22,6 +24,9 @@ from capture import VideoCaptureThreading
 #TODO: Make the calibration more customer-centric
 #TODO: Add tracking for faster video processing (ok)
 #TODO: asynchronous video capture for real-time video capture (ok)
+#TODO: Integrate text detection to main.py (opencv problem at the moment)
+#TODO: Change the formula for finding the equivalent reading value (Given two points, interpolate the reading value; better than finding the zero mark)
+#TODO: Create profiles
 
 def build_argparser():
     parser = ArgumentParser(add_help=False)
@@ -40,6 +45,7 @@ def build_argparser():
     args.add_argument("-hs", "--hsvslider", action='store_true', default=False, help='Enables the hsv slider')
     args.add_argument("-t", "--tracker", type=int, default=6, help='Tracker type to be used')
     args.add_argument("-a", "--async", action='store_true', default=False, help='Enable async mode video capture')
+    args.add_argument("-p", "--profile", type=str, required=True, help='select bus profile to use')
 
     return parser
 
@@ -130,9 +136,10 @@ def convertAngleToData(angle):
         transformedAngle = settings.MIN_ANGLE - angle
     else:
         transformedAngle = settings.MIN_ANGLE + (360-angle)
-        
+     
+    #TODO: Update the formula   
     data = (transformedAngle/settings.ANGLE_RANGE)*settings.MAX_VALUE
-    log.info("[{0}] {1} {2}".format(time.time(), data, settings.UNIT))
+    log.info("[{0}] {1} {2}".format(datetime.datetime.now(), data, settings.UNIT))
         
     return data
     
@@ -160,11 +167,27 @@ def process_args(args):
         settings.input_stream = args.input
         assert os.path.isfile(args.input), "Specified input file doesn't exist"
         
-    settings.UNIT = args.unit
-    settings.MIN_ANGLE = args.min_angle
-    settings.MAX_ANGLE = args.max_angle
-    settings.MAX_VALUE = args.max_value
     settings.tracker_type = settings.tracker_types[args.tracker]
+    
+    try:
+        profile = importlib.import_module('profiles.' + args.profile, None)
+        profile.init()
+        test = profile.test
+        settings.MAX_VALUE = profile.max_value
+        settings.UNIT = profile.unit
+        settings.HSV_HUL = profile.HSV_HUL
+        settings.HSV_HUH = profile.HSV_HUH
+        settings.HSV_SAL = profile.HSV_SAL
+        settings.HSV_SAH = profile.HSV_SAH
+        settings.HSV_VAL = profile.HSV_VAL
+        settings.HSV_VAH = profile.HSV_VAH
+        log.info("{} successfully loaded".format(args.profile))
+    except:
+        log.info("Failed to load {}. Default values will be used".format(args.profile))
+        settings.UNIT = args.unit
+        settings.MIN_ANGLE = args.min_angle
+        settings.MAX_ANGLE = args.max_angle
+        settings.MAX_VALUE = args.max_value
     
     if(args.max_angle <= 270):
         settings.ANGLE_RANGE = args.min_angle - args.max_angle
@@ -493,10 +516,10 @@ def main():
                     del circleTracker
                     del dialTracker
                     break
-                    
-                '''while(1):
+                
+                while(1):
                     if cv2.waitKey(1) & 0xFF == ord('q'):
-                        break'''
+                        break
                 #break
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
